@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pond Paths · ModuMath</title>
+<style>
+:root {color-scheme: light; --ink:#123d38; --cream:#fbf7e9; --bay:#117a7a; --sand:#f5deaa; --edge:#adc4ab}
+* {box-sizing:border-box}
+body {margin:0; color:var(--ink); background:#dbe9d7; font:16px/1.4 "Atkinson Hyperlegible Next",system-ui,sans-serif}
+main {max-width:660px; margin:auto; min-height:100svh; padding:clamp(15px,4vw,36px)}
+header,.score,footer,.actions {display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+header {border-bottom:1px solid var(--edge);padding-bottom:12px}
+a {color:var(--ink);text-underline-offset:3px}
+.brand {font-weight:750;letter-spacing:.035em}
+.brand::before {content:"";display:inline-block;width:.8em;height:.8em;border-radius:0 65% 0 65%;margin-right:.5em;background:var(--bay)}
+h1 {font:600 clamp(40px,10vw,70px)/1.05 Georgia,serif;margin:20px 0 3px;letter-spacing:-.05em}
+p {margin:7px 0 14px}
+.score {margin:15px 0 10px;font-size:.95rem}
+.score strong {font-size:1.1em}
+#board {display:grid;gap:3px;background:#9cb8a2;border:6px solid #809b81;border-radius:12px;overflow:hidden;padding:4px;box-shadow:0 4px 0 #67826e;width:min(100%,520px);margin:0 auto}
+.cell {min-width:0;aspect-ratio:1/1;border:0;border-radius:4px;display:grid;place-items:center;background:var(--sand);padding:0;position:relative;cursor:pointer}
+.cell.empty::before {content:"";width:15%;height:15%;background:#bc9452;border-radius:50%}
+.water {background:repeating-linear-gradient(165deg,#258c89 0 8px,#228782 8px 16px);cursor:default}
+.water::after {content:"∿";color:#9bdad0;font:700 clamp(13px,4vw,25px)/1 Georgia,serif;transform:rotate(-8deg)}
+.paved {background:var(--strip);cursor:default}
+.paved::after {content:"";position:absolute;inset:20%;border:1px solid #ffffff78;border-radius:3px;transform:rotate(4deg)}
+.cell.chosen {box-shadow:inset 0 0 0 4px #153c36;background:#fff8d3}
+.cell.chosen::before {background:#153c36;width:26%;height:26%}
+button:focus-visible,a:focus-visible {outline:3px solid #aa451d;outline-offset:2px}
+.cell:focus-visible {outline-offset:-4px;z-index:1}
+#status {min-height:3em;font-weight:600;margin:13px 0 5px}
+.actions {justify-content:flex-start}
+.actions button {font:inherit;font-weight:650;padding:8px 15px;border:1px solid #83a391;border-radius:8px;background:var(--cream);color:var(--ink);cursor:pointer}
+.actions button:disabled {opacity:.48;cursor:default}
+.actions .next {background:var(--ink);color:white;border-color:var(--ink)}
+footer {font-size:.87rem;margin:20px 0 0;border-top:1px solid var(--edge);padding-top:12px}
+@media(max-width:430px){main{padding:12px 15px}.cell{border-radius:3px}h1{margin-top:12px}#board{gap:2px}}
+</style>
+<main>
+  <header><span class="brand">ModuMath</span><span id="round"></span></header>
+  <h1>Pond Paths</h1>
+  <p>Cover the sand around the water. Tap the two ends of a straight strip. How few strips can you use?</p>
+  <div class="score"><strong id="level"></strong><span id="score"></span></div>
+  <div id="board" role="group" aria-label="Pond tiling puzzle"></div>
+  <p id="status" role="status" aria-live="polite"></p>
+  <div class="actions"><button id="undo">Undo strip</button><button id="reset">Restart pond</button><button id="next" class="next" hidden>Next pond</button></div>
+  <footer><span>Each sand square is one square metre.</span><a href="https://math.hjinlabs.com/" target="_blank" rel="noopener">Practise with ModuMath ↗</a></footer>
+</main>
+<script>
+const ponds=[
+  {name:'The lily pond',map:['.....','.~~~.','.~~~.','.....'],par:4},
+  {name:'Twin pools',map:['.......','.~~.~~.','.~~.~~.','.......'],par:5},
+  {name:'The footbridge',map:['.......','.~~~~~.','.......','.~~~~~.','.......'],par:5},
+  {name:'Four islands of blue',map:['.......','.~~.~~.','.~~.~~.','.......','.~~.~~.','.~~.~~.','.......'],par:7}
+];
+const colours=['#b86637','#69925e','#8d677c','#b29b47','#537f9b','#ab7972','#4c8277','#917648'];
+const elem=id=>document.getElementById(id);
+let index=0, start=null, strips=[], cells=[], hint='';
+function message(){
+  if(hint) return hint;
+  if(start!==null) return 'Now choose the other end in the same row or column. Tap the same square for a single tile.';
+  return 'Choose a sand square to start your strip.';
+}
+function refresh(){
+  const pond=ponds[index],width=pond.map[0].length;
+  const taken=new Map();
+  strips.forEach((strip,i)=>strip.forEach(square=>taken.set(square,i)));
+  let remaining=0;
+  cells.forEach((cell,pos)=>{
+    const row=Math.floor(pos/width),col=pos%width;
+    const water=pond.map[row][col]==='~',paved=taken.has(pos);
+    cell.className='cell '+(water?'water':paved?'paved':'empty')+(start===pos?' chosen':'');
+    if(!water&&!paved) remaining++;
+    if(paved) cell.style.setProperty('--strip',colours[taken.get(pos)%colours.length]);
+    const kind=water?'water':paved?'paved strip '+(taken.get(pos)+1):start===pos?'selected start':'sand';
+    cell.setAttribute('aria-label','Row '+(row+1)+', column '+(col+1)+', '+kind);
+    cell.setAttribute('aria-pressed',String(start===pos));
+  });
+  elem('score').textContent=strips.length+(strips.length===1?' strip':' strips')+' · target '+pond.par;
+  elem('undo').disabled=strips.length===0&&start===null;
+  elem('reset').disabled=elem('undo').disabled;
+  elem('next').hidden=remaining!==0;
+  elem('next').textContent=index===ponds.length-1?'Play again':'Next pond';
+  const area=strips.reduce((sum,strip)=>sum+strip.length,0);
+  elem('status').textContent=remaining?message():'Path complete! '+area+' m² in '+strips.length+' strips. '+(strips.length<=pond.par?'Target met.':'Undo a strip or retry to meet the target.');
+}
+function pick(pos){
+  const pond=ponds[index],width=pond.map[0].length;
+  const clear=n=>pond.map[Math.floor(n/width)][n%width]==='.'&&!strips.some(strip=>strip.includes(n));
+  if(!clear(pos)){hint='Choose uncovered sand. Water and finished strips stay in place.';refresh();return}
+  if(start===null){start=pos;hint='';refresh();return}
+  const sameRow=Math.floor(start/width)===Math.floor(pos/width),sameCol=start%width===pos%width;
+  if(!sameRow&&!sameCol){hint='A strip must be straight. Choose an end in the selected row or column.';refresh();return}
+  const step=sameRow?1:width,strip=[];
+  for(let n=Math.min(start,pos);n<=Math.max(start,pos);n+=step){
+    if(!clear(n)){hint='That strip crosses water or another strip. Try a shorter one.';refresh();return}
+    strip.push(n);
+  }
+  strips.push(strip);start=null;hint='';refresh();
+}
+function loadPond(){
+  const pond=ponds[index],width=pond.map[0].length;
+  start=null;strips=[];hint='';cells=[];
+  elem('round').textContent='Pond '+(index+1)+' / '+ponds.length;
+  elem('level').textContent=pond.name;
+  const board=elem('board');board.replaceChildren();board.style.gridTemplateColumns='repeat('+width+',1fr)';
+  pond.map.forEach((line,r)=>Array.from(line).forEach((_,c)=>{
+    const cell=document.createElement('button'),pos=r*width+c;
+    cell.type='button';cell.addEventListener('click',()=>pick(pos));
+    cell.addEventListener('keydown',event=>{
+      const offset={ArrowLeft:-1,ArrowRight:1,ArrowUp:-width,ArrowDown:width}[event.key];
+      if(!offset)return;
+      event.preventDefault();
+      const dest=pos+offset;
+      if((event.key==='ArrowLeft'&&c===0)||(event.key==='ArrowRight'&&c===width-1))return;
+      cells[dest]?.focus();
+    });
+    cells.push(cell);board.append(cell);
+  }));
+  refresh();
+}
+elem('undo').onclick=()=>{if(start!==null)start=null;else strips.pop();hint='';refresh()};
+elem('reset').onclick=loadPond;
+elem('next').onclick=()=>{index=(index+1)%ponds.length;loadPond();cells[0].focus()};
+loadPond();
+</script>
+</html>
